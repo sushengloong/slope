@@ -2,12 +2,15 @@ package conversation
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"time"
 
+	"encore.dev/storage/sqldb"
 	"github.com/go-playground/validator/v10"
 	"go.jetify.com/typeid"
+	"gorm.io/datatypes"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type Channel string
@@ -28,13 +31,13 @@ const (
 )
 
 type Conversation struct {
-	ID         string            `json:"id"`
-	CustomerID string            `json:"customer_id"`
-	Channel    Channel           `json:"channel"`
-	Metadata   map[string]string `json:"metadata"`
-	Created    time.Time         `json:"created"`
-	Updated    time.Time         `json:"updated"`
-	Status     Status            `json:"status"`
+	ID         string                                `json:"id"`
+	CustomerID string                                `json:"customer_id"`
+	Channel    Channel                               `json:"channel"`
+	Metadata   datatypes.JSONType[map[string]string] `json:"metadata"`
+	Status     Status                                `json:"status"`
+	Created    time.Time                             `json:"created"`
+	Updated    time.Time                             `json:"updated"`
 }
 
 type ListResponse struct {
@@ -64,25 +67,26 @@ func validateCustomerId(fl validator.FieldLevel) bool {
 	return re.MatchString(fval)
 }
 
-var conversations = map[string]*Conversation{}
-
 //encore:api public method=GET path=/conversations
-func List(ctx context.Context) (*ListResponse, error) {
-	convs := getConversationValues(conversations)
+func (s *Service) List(ctx context.Context) (*ListResponse, error) {
+	var convs []*Conversation
+	if err := s.db.Find(&convs).Error; err != nil {
+		return nil, err
+	}
 	return &ListResponse{Data: convs}, nil
 }
 
 //encore:api public method=GET path=/conversations/:id
-func Get(ctx context.Context, id string) (*Conversation, error) {
-	conv, ok := conversations[id]
-	if !ok {
-		return nil, fmt.Errorf("No conversation found with id: %s", id)
+func (s *Service) Get(ctx context.Context, id string) (*Conversation, error) {
+	var conv Conversation
+	if err := s.db.Where("id = $1", id).First(&conv).Error; err != nil {
+		return nil, err
 	}
-	return conv, nil
+	return &conv, nil
 }
 
 //encore:api public method=POST path=/conversations
-func Start(ctx context.Context, p *StartParams) (*Conversation, error) {
+func (s *Service) Start(ctx context.Context, p *StartParams) (*Conversation, error) {
 	cid, err := typeid.WithPrefix("conversation")
 	if err != nil {
 		return nil, err
@@ -93,23 +97,36 @@ func Start(ctx context.Context, p *StartParams) (*Conversation, error) {
 	} else {
 		metadata = p.Metadata
 	}
-	conv := Conversation{
+	conv := &Conversation{
 		ID:         cid.String(),
 		CustomerID: p.CustomerID,
 		Channel:    Channel(p.Channel),
-		Metadata:   metadata,
+		Metadata:   datatypes.NewJSONType(metadata),
 		Created:    time.Now(),
 		Updated:    time.Now(),
 		Status:     StatusActive,
 	}
-	conversations[conv.ID] = &conv
-	return &conv, nil
+	if err := s.db.Create(conv).Error; err != nil {
+		return nil, err
+	}
+	return conv, nil
 }
 
-func getConversationValues(m map[string]*Conversation) []*Conversation {
-	values := make([]*Conversation, 0, len(m))
-	for _, value := range m {
-		values = append(values, value)
-	}
-	return values
+//encore:service
+type Service struct {
+	db *gorm.DB
 }
+
+func initService() (*Service, error) {
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: db.Stdlib(),
+	}))
+	if err != nil {
+		return nil, err
+	}
+	return &Service{db: db}, nil
+}
+
+var db = sqldb.NewDatabase("conversation", sqldb.DatabaseConfig{
+	Migrations: "./migrations",
+})
