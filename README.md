@@ -1,6 +1,6 @@
 # slope
 
-**Project Status: Work in Progress**
+***Project Status: Work in Progress***
 
 AI agent for customer support.
 
