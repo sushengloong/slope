@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"time"
 
@@ -63,11 +64,21 @@ func validateCustomerId(fl validator.FieldLevel) bool {
 	return re.MatchString(fval)
 }
 
-var conversations = []*Conversation{}
+var conversations = map[string]*Conversation{}
 
 //encore:api public method=GET path=/conversations
 func List(ctx context.Context) (*ListResponse, error) {
-	return &ListResponse{Data: conversations}, nil
+	convs := getConversationValues(conversations)
+	return &ListResponse{Data: convs}, nil
+}
+
+//encore:api public method=GET path=/conversations/:id
+func Get(ctx context.Context, id string) (*Conversation, error) {
+	conv, ok := conversations[id]
+	if !ok {
+		return nil, fmt.Errorf("No conversation found with id: %s", id)
+	}
+	return conv, nil
 }
 
 //encore:api public method=POST path=/conversations
@@ -91,6 +102,14 @@ func Start(ctx context.Context, p *StartParams) (*Conversation, error) {
 		Updated:    time.Now(),
 		Status:     StatusActive,
 	}
-	conversations = append(conversations, &conv)
+	conversations[conv.ID] = &conv
 	return &conv, nil
+}
+
+func getConversationValues(m map[string]*Conversation) []*Conversation {
+	values := make([]*Conversation, 0, len(m))
+	for _, value := range m {
+		values = append(values, value)
+	}
+	return values
 }
