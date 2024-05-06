@@ -40,6 +40,17 @@ type Conversation struct {
 	Updated    time.Time                             `json:"updated"`
 }
 
+type Message struct {
+	ID              string                                `json:"id"`
+	ConversationID  string                                `json:"conversation_id"`
+	Body            string                                `json:"body"`
+	ParticipantId   string                                `json:"participant_id"`
+	ParticipantType string                                `json:"participant_type"`
+	Metadata        datatypes.JSONType[map[string]string] `json:"metadata"`
+	Created         time.Time                             `json:"created"`
+	Updated         time.Time                             `json:"updated"`
+}
+
 type ListResponse struct {
 	// Sites is the list of monitored sites.
 	Data []*Conversation `json:"data"`
@@ -49,6 +60,13 @@ type StartParams struct {
 	CustomerID string            `json:"customer_id" validate:"required,customerId"`
 	Channel    string            `json:"channel" validate:"required,oneof=web email"`
 	Metadata   map[string]string `json:"metadata" validate:"min=0,max=20"`
+}
+
+type AddMessageParams struct {
+	Body            string            `json:"body"`
+	ParticipantId   string            `json:"participant_id"`
+	ParticipantType string            `json:"participant_type"`
+	Metadata        map[string]string `json:"metadata" validate:"min=0,max=20"`
 }
 
 func (p *StartParams) Validate() error {
@@ -110,6 +128,38 @@ func (s *Service) Start(ctx context.Context, p *StartParams) (*Conversation, err
 		return nil, err
 	}
 	return conv, nil
+}
+
+//encore:api public method=POST path=/conversations/:conversationID/messages
+func (s *Service) AddMessage(ctx context.Context, conversationID string, p *AddMessageParams) (*Message, error) {
+	var conv Conversation
+	if err := s.db.Where("id = $1", conversationID).First(&conv).Error; err != nil {
+		return nil, err
+	}
+	mid, err := typeid.WithPrefix("message")
+	if err != nil {
+		return nil, err
+	}
+	var metadata map[string]string
+	if p.Metadata == nil {
+		metadata = make(map[string]string)
+	} else {
+		metadata = p.Metadata
+	}
+	msg := &Message{
+		ID:              mid.String(),
+		ConversationID:  conversationID,
+		Body:            p.Body,
+		ParticipantId:   p.ParticipantId,
+		ParticipantType: p.ParticipantType,
+		Metadata:        datatypes.NewJSONType(metadata),
+		Created:         time.Now(),
+		Updated:         time.Now(),
+	}
+	if err := s.db.Create(msg).Error; err != nil {
+		return nil, err
+	}
+	return msg, nil
 }
 
 //encore:service
